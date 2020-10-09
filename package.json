@@ -1,0 +1,12 @@
+{
+  "name": "batch-shipper",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "@easypost/api": "^3.9.1",
+    "dotenv": "^8.2.0",
+    "image-downloader": "^4.0.1",
+    "pdfkit": "^0.11.0"
+  }
+}
