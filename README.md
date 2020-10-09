@@ -1,6 +1,6 @@
 # shipping-batcher
 
-Built for a specific use case of fulfilling shipments of pre-ordered zines. This script takes a CSV of orders, purchases shipping using easypost.com at the lowest rate (Media Mail in my case) and generates a PDF of 4x6 pre-paid shipping labels for printing.
+Built for a specific use case of fulfilling shipments of pre-ordered zines. This script (WILL) take a CSV of orders, purchases shipping using easypost.com at the lowest rate (Media Mail in my case) and generates a PDF of 4x6 pre-paid shipping labels for printing.
 
 ## Installation
 
