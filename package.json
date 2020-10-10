@@ -3,10 +3,15 @@
   "version": "1.0.0",
   "main": "index.js",
   "license": "MIT",
+  "type": "module",
   "dependencies": {
     "@easypost/api": "^3.9.1",
+    "chalk": "^4.1.0",
+    "csv": "^5.3.2",
+    "csv-writer": "^1.6.0",
     "dotenv": "^8.2.0",
     "image-downloader": "^4.0.1",
-    "pdfkit": "^0.11.0"
+    "pdfkit": "^0.11.0",
+    "press-any-key": "^0.1.1"
   }
 }
