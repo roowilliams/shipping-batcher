@@ -20,6 +20,7 @@ const csvWriter = createCsvWriter({
   //   append: true,
   header: [
     { id: 'order', title: 'ORDER NUMBER' },
+    { id: 'quantity', title: 'QUANTITY' },
     { id: 'email', title: 'CUSTOMER EMAIL' },
     { id: 'trackingCode', title: 'TRACKING CODE' },
     { id: 'trackingUrl', title: 'URL' },
@@ -49,11 +50,14 @@ async function parseCSV(file) {
   })
 }
 
-function checkProgress(currentIndex) {
-  setTimeout(() => {
-    currentIndex++
-    processRow(currentIndex)
-  }, 3000)
+function checkProgress(currentIndex, skipDelay) {
+  setTimeout(
+    () => {
+      currentIndex++
+      processRow(currentIndex)
+    },
+    skipDelay ? 0 : 6000
+  )
   //   pressAnyKey('Press any key to continue, or CTRL+C to exit.\n', {
   //     ctrlC: 'reject'
   //   })
@@ -93,15 +97,19 @@ function verifyAddress(row) {
 async function processRow(index) {
   const row = rows[index]
   const order = filterOrder(row)
+  var skipDelay = false
   if (order) {
     const orderNumber = order['Invoice number']
     console.log(orderNumber + ': verifying delivery address...')
     await verifyAddress(row).then((result) => {
       if (!result.verifications.delivery.success) {
-        console.log(chalk.red(result.verifications.delivery.errors))
+        console.log(
+          chalk.red(JSON.stringify(result.verifications.delivery.errors))
+        )
         console.log(
           chalk.red('Address verification failed, skipping ', orderNumber)
         )
+        skipDelay = true
       } else {
         console.log(orderNumber + ': success\n')
         processOrder(order, result.id)
@@ -112,23 +120,26 @@ async function processRow(index) {
     console.log(
       `Skipping ${row['Shipping address country']} order ${row['Invoice number']} placed by ${row['Customer name']} <${row['Customer email']}> with order status: ${row['Order status']}.`
     )
+    skipDelay = true
   }
   if (index === rows.length - 1) {
     console.log('Processing finished')
     doc.end()
   }
-  checkProgress(index)
+  checkProgress(index, skipDelay)
 }
 
 function processOrder(order, addressId) {
   // calculate correct shipping rate
-  let tempParcel = config.parcel
+  var baseItem = config.parcel
   const orderQuantity = parseInt(order['Quantity'])
-  if (orderQuantity > 1) {
-    let itemWeight = tempParcel.weight
-    tempParcel.weight = itemWeight * orderQuantity
-  }
 
+  const tempParcel = {
+    ...baseItem,
+    height: baseItem.height * orderQuantity,
+    weight: baseItem.weight * orderQuantity
+  }
+  console.log(tempParcel)
   const parcel = new api.Parcel(tempParcel)
 
   // set up addresses
@@ -148,10 +159,19 @@ function processOrder(order, addressId) {
 
   shipment
     .save()
-    .then((shipment) => shipment.buy(shipment.lowestRate()))
+    .then((shipment) => {
+      console.log('Parcel weight:', tempParcel.weight)
+      console.log(
+        `Lowest rate using ${shipment.lowestRate().service} is ${
+          shipment.lowestRate().rate
+        } ${shipment.lowestRate().currency}`
+      )
+      return shipment.buy(shipment.lowestRate())
+    })
     .then((result) => {
       return {
         orderNumber: orderNumber,
+        quantity: orderQuantity,
         customerEmail: customerEmail,
         tracking: {
           code: result.tracker.tracking_code,
@@ -172,6 +192,7 @@ function processOrder(order, addressId) {
       csvWriter.writeRecords([
         {
           order: shipment.orderNumber,
+          quantity: shipment.quantity,
           email: shipment.customerEmail,
           trackingCode: shipment.tracking.code,
           trackingUrl: shipment.tracking.url,
@@ -187,7 +208,7 @@ function addLabelToPdf(orderNumber, labelUrl) {
   download
     .image({ url: labelUrl, dest: `./labels/${orderNumber}.png` })
     .then(({ filename }) => {
-      console.log('Label saved to', filename) // saved to /path/to/dest/photo.jpg
+      console.log('Label saved to', filename)
       doc.addPage({ size: [4 * 72, 6 * 72], margin: 0 }).image(filename, {
         fit: [4 * 72, 6 * 72],
         align: 'center',
