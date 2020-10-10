@@ -31,8 +31,11 @@ const csvWriter = createCsvWriter({
 
 var currentIndex = 0
 var rows = []
-const doc = new PDFDocument({ autoFirstPage: false })
-doc.pipe(fs.createWriteStream('./labels/all-labels.pdf'))
+var doc = null
+
+var currentBatch = 0
+var labelsGenerated = 0
+const batchAmount = 20
 
 // take a csv of orders, generate a printable pdf of shipping labels
 // and export a csv of email addresses, names and tracking numbers
@@ -50,9 +53,22 @@ async function parseCSV(file) {
   })
 }
 
+function updateBatch() {
+  currentBatch++
+  if (doc) doc.end()
+  doc = new PDFDocument({ autoFirstPage: false })
+  doc.pipe(fs.createWriteStream(`./labels/all-labels-${currentBatch}.pdf`))
+}
+
+function onComplete(index) {
+  console.log(`Processing ${index} orders complete.`)
+  doc.end()
+}
+
 function checkProgress(currentIndex, skipDelay) {
   setTimeout(
     () => {
+      if (currentIndex > 0 && labelsGenerated % batchAmount === 0) updateBatch()
       currentIndex++
       processRow(currentIndex)
     },
@@ -123,8 +139,7 @@ async function processRow(index) {
     skipDelay = true
   }
   if (index === rows.length - 1) {
-    console.log('Processing finished')
-    doc.end()
+    onComplete(index)
   }
   checkProgress(index, skipDelay)
 }
@@ -185,6 +200,7 @@ function processOrder(order, addressId) {
       }
     })
     .then((shipment) => {
+      labelsGenerated++
       addLabelToPdf(orderNumber, shipment.labelUrl)
       return shipment
     })
