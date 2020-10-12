@@ -91,7 +91,7 @@ function onComplete(index) {
 
 function checkProgress(currentIndex, skipDelay) {
   if (currentIndex === rows.length - 1) {
-    return onComplete(index)
+    return onComplete(currentIndex)
   }
 
   return setTimeout(
