@@ -139,7 +139,10 @@ function verifyAddress(row) {
 
 function onAddressError(order, errors) {
   console.log(
-    chalk.red('❓ Address verification failed, skipping ', orderNumber)
+    chalk.red(
+      '❓ Address verification failed, skipping ',
+      order['Invoice number']
+    )
   )
   unprocessedWriter.writeRecords([
     {
