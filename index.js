@@ -57,7 +57,6 @@ var doc = null
 var currentBatch = 0
 var labelsGenerated = 0
 const batchAmount = 2
-var writeStream = null
 
 // take a csv of orders, generate a printable pdf of shipping labels
 // and export a csv of email addresses, names and tracking numbers
@@ -76,13 +75,13 @@ async function parseCSV(file) {
 }
 
 function updateBatch() {
-  console.log('Saving batch pdf...')
+  process.stdout.write('Saving batch pdf... ')
 
   return savePdfToFile(doc, `./labels/labels-${currentBatch}.pdf`).then(() => {
-    console.log('Saved')
+    console.log('saved')
     doc = new PDFDocument({ autoFirstPage: false })
-    console.log('Created new doc')
     currentBatch++
+    console.log(chalk.yellow(`\n--- Batch ${currentBatch}`))
   })
 }
 
@@ -92,20 +91,27 @@ function onComplete(index) {
 }
 
 function checkProgress(currentIndex, skipDelay) {
-  setTimeout(
-    () => {
-      if (currentIndex > 0 && labelsGenerated % batchAmount === 0) {
-        updateBatch().then(() => {
-          currentIndex++
+  if (currentIndex === rows.length - 1) {
+    return onComplete(index)
+  }
 
-          setTimeout(() => processRow(currentIndex), 3000)
+  return setTimeout(
+    () => {
+      if (
+        !skipDelay &&
+        currentIndex > 0 &&
+        labelsGenerated % batchAmount === 0
+      ) {
+        return updateBatch().then(() => {
+          currentIndex++
+          return processRow(currentIndex)
         })
       } else {
         currentIndex++
-        processRow(currentIndex)
+        return processRow(currentIndex)
       }
     },
-    skipDelay ? 0 : 6000
+    skipDelay ? 1000 : 6000
   )
 }
 
@@ -132,58 +138,55 @@ function verifyAddress(row) {
     .catch(console.log)
 }
 
+function onAddressError(order, errors) {
+  console.log(chalk.red(JSON.stringify(errors)))
+  console.log(chalk.red('Address verification failed, skipping ', orderNumber))
+  unprocessedWriter.writeRecords([
+    {
+      invoiceNumber: order['Invoice number'],
+      quantity: order['Quantity'],
+      customerName: order['Customer name'],
+      customerEmail: order['Customer email'],
+      orderStatus: order['Order status'],
+      shipToName: order['Ship to'],
+      street1: order['Shipping address'],
+      street2: order['Shipping address 2'],
+      city: order['Shipping address city'],
+      state: order['Shipping address province/state'],
+      zip: order['Shipping address postal code'],
+      country: order['Shipping address country'],
+      refundAmount: order['Refunds amount'],
+      error: JSON.stringify(errors)
+    }
+  ])
+}
+
 async function processRow(index) {
   const row = rows[index]
   const order = filterOrder(row)
-  var skipDelay = false
+
   if (order) {
     const orderNumber = order['Invoice number']
-    console.log(orderNumber + ': verifying delivery address...')
-    await verifyAddress(row).then((result) => {
-      if (!result.verifications.delivery.success) {
-        console.log(
-          chalk.red(JSON.stringify(result.verifications.delivery.errors))
-        )
-        console.log(
-          chalk.red('Address verification failed, skipping ', orderNumber)
-        )
-        unprocessedWriter.writeRecords([
-          {
-            invoiceNumber: order['Invoice number'],
-            quantity: order['Quantity'],
-            customerName: order['Customer name'],
-            customerEmail: order['Customer email'],
-            orderStatus: order['Order status'],
-            shipToName: order['Ship to'],
-            street1: order['Shipping address'],
-            street2: order['Shipping address 2'],
-            city: order['Shipping address city'],
-            state: order['Shipping address province/state'],
-            zip: order['Shipping address postal code'],
-            country: order['Shipping address country'],
-            refundAmount: order['Refunds amount'],
-            error: JSON.stringify(result.verifications.delivery.errors)
-          }
-        ])
-        skipDelay = true
-      } else {
-        console.log(orderNumber + ': success\n')
-        processOrder(order, result.id)
-      }
-    })
-  } else {
-    console.log(
-      `Skipping ${row['Shipping address country']} order ${row['Invoice number']} placed by ${row['Customer name']} <${row['Customer email']}> with order status: ${row['Order status']}.`
-    )
-    skipDelay = true
+
+    process.stdout.write(`verifying delivery address for ${orderNumber}... `)
+    const result = await verifyAddress(row)
+
+    if (!result.verifications.delivery.success) {
+      return onAddressError(order, errors)
+    }
+
+    console.log('address verified.\n')
+    await processOrder(order, result.id)
+    return checkProgress(index, false)
   }
-  if (index === rows.length - 1) {
-    return onComplete(index)
-  }
-  checkProgress(index, skipDelay)
+
+  console.log(
+    `Skipping Non-US order (${row['Shipping address country']}) ${row['Invoice number']} placed by ${row['Customer name']} <${row['Customer email']}>.`
+  )
+  return checkProgress(index, true)
 }
 
-function processOrder(order, addressId) {
+async function processOrder(order, addressId) {
   // calculate correct shipping rate
   var baseItem = config.parcel
   const orderQuantity = parseInt(order['Quantity'])
@@ -211,7 +214,7 @@ function processOrder(order, addressId) {
     }
   })
 
-  shipment
+  return shipment
     .save()
     .then((shipment) => {
       console.log('Parcel weight:', tempParcel.weight)
@@ -239,9 +242,10 @@ function processOrder(order, addressId) {
       }
     })
     .then((shipment) => {
-      labelsGenerated++
-      addLabelToPdf(orderNumber, shipment.labelUrl)
-      return shipment
+      return addLabelToPdf(orderNumber, shipment.labelUrl).then(() => {
+        labelsGenerated++
+        return shipment
+      })
     })
     .then((shipment) => {
       processedWriter.writeRecords([
@@ -260,7 +264,7 @@ function processOrder(order, addressId) {
 }
 
 function addLabelToPdf(orderNumber, labelUrl) {
-  download
+  return download
     .image({ url: labelUrl, dest: `./labels/source/${orderNumber}.png` })
     .then(({ filename }) => {
       console.log('Label saved to', filename)
