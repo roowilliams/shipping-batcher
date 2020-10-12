@@ -6,7 +6,6 @@ require('dotenv').config()
 import config from './config.js'
 const EasyPost = require('@easypost/api')
 const api = new EasyPost(process.env.EASYPOST_API_KEY)
-const pressAnyKey = require('press-any-key')
 const download = require('image-downloader')
 const PDFDocument = require('pdfkit')
 const parse = require('csv-parse')
@@ -56,7 +55,7 @@ var doc = null
 
 var currentBatch = 0
 var labelsGenerated = 0
-const batchAmount = 2
+const batchAmount = config.batchAmount
 
 // take a csv of orders, generate a printable pdf of shipping labels
 // and export a csv of email addresses, names and tracking numbers
