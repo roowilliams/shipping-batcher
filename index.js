@@ -140,7 +140,7 @@ function verifyAddress(row) {
 function onAddressError(order, errors) {
   console.log(
     chalk.red(
-      '❓ Address verification failed, skipping ',
+      '❓ Address verification failed, skipping',
       order['Invoice number']
     )
   )
@@ -175,7 +175,8 @@ async function processRow(index) {
     const result = await verifyAddress(row)
 
     if (!result.verifications.delivery.success) {
-      return onAddressError(order, result.verifications.delivery.errors)
+      onAddressError(order, result.verifications.delivery.errors)
+      return checkProgress(index, false)
     }
 
     console.log('✅')
