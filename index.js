@@ -80,7 +80,7 @@ function updateBatch() {
     console.log('saved')
     doc = new PDFDocument({ autoFirstPage: false })
     currentBatch++
-    console.log(chalk.yellow(`\n--- Batch ${currentBatch}`))
+    console.log(chalk.yellow(`\n--- Batch ${currentBatch} ---`))
   })
 }
 
@@ -110,7 +110,7 @@ function checkProgress(currentIndex, skipDelay) {
         return processRow(currentIndex)
       }
     },
-    skipDelay ? 1000 : 6000
+    skipDelay ? 0 : 5000
   )
 }
 
@@ -138,8 +138,9 @@ function verifyAddress(row) {
 }
 
 function onAddressError(order, errors) {
-  console.log(chalk.red(JSON.stringify(errors)))
-  console.log(chalk.red('Address verification failed, skipping ', orderNumber))
+  console.log(
+    chalk.red('❓ Address verification failed, skipping ', orderNumber)
+  )
   unprocessedWriter.writeRecords([
     {
       invoiceNumber: order['Invoice number'],
@@ -166,21 +167,23 @@ async function processRow(index) {
 
   if (order) {
     const orderNumber = order['Invoice number']
-
-    process.stdout.write(`verifying delivery address for ${orderNumber}... `)
+    console.log(chalk.green(`\n--- ${orderNumber} ---`))
+    process.stdout.write(`🏠 Verifying delivery address for ${orderNumber}... `)
     const result = await verifyAddress(row)
 
     if (!result.verifications.delivery.success) {
-      return onAddressError(order, errors)
+      return onAddressError(order, result.verifications.delivery.errors)
     }
 
-    console.log('address verified.\n')
+    console.log('✅')
     await processOrder(order, result.id)
     return checkProgress(index, false)
   }
 
   console.log(
-    `Skipping Non-US order (${row['Shipping address country']}) ${row['Invoice number']} placed by ${row['Customer name']} <${row['Customer email']}>.`
+    chalk.gray(
+      `Skipping Non-US order (${row['Shipping address country']}) ${row['Invoice number']} placed by ${row['Customer name']} <${row['Customer email']}>.`
+    )
   )
   return checkProgress(index, true)
 }
@@ -216,11 +219,10 @@ async function processOrder(order, addressId) {
   return shipment
     .save()
     .then((shipment) => {
-      console.log('Parcel weight:', tempParcel.weight)
       console.log(
-        `Lowest rate using ${shipment.lowestRate().service} is ${
-          shipment.lowestRate().rate
-        } ${shipment.lowestRate().currency}`
+        `📦 Lowest rate for parcel weighing ${tempParcel.weight}oz using ${
+          shipment.lowestRate().service
+        } is ${shipment.lowestRate().rate} ${shipment.lowestRate().currency}`
       )
       return shipment.buy(shipment.lowestRate())
     })
@@ -266,7 +268,7 @@ function addLabelToPdf(orderNumber, labelUrl) {
   return download
     .image({ url: labelUrl, dest: `./labels/source/${orderNumber}.png` })
     .then(({ filename }) => {
-      console.log('Label saved to', filename)
+      console.log(`⬇️  Label saved to ${filename}.\n`)
       doc.addPage({ size: [4 * 72, 6 * 72], margin: 0 }).image(filename, {
         fit: [4 * 72, 6 * 72],
         align: 'center',
