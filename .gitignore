@@ -4,4 +4,4 @@ node_modules
 *.env
 config.js
 orders.csv
-/processed
+/output

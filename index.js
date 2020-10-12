@@ -13,10 +13,10 @@ const parse = require('csv-parse')
 const createCsvWriter = require('csv-writer').createObjectCsvWriter
 const fs = require('fs')
 const chalk = require('chalk')
-import { transformAddress } from './utils/index.js'
+import { transformAddress, savePdfToFile } from './utils/index.js'
 
-const csvWriter = createCsvWriter({
-  path: './processed/processed.csv',
+const processedWriter = createCsvWriter({
+  path: './output/processed.csv',
   //   append: true,
   header: [
     { id: 'order', title: 'ORDER NUMBER' },
@@ -29,13 +29,35 @@ const csvWriter = createCsvWriter({
   ]
 })
 
+const unprocessedWriter = createCsvWriter({
+  path: './output/unprocessed.csv',
+  //   append: true,
+  header: [
+    { id: 'invoiceNumber', title: 'Invoice number' },
+    { id: 'quantity', title: 'Quantity' },
+    { id: 'customerName', title: 'Customer name' },
+    { id: 'customerEmail', title: 'Customer email' },
+    { id: 'orderStatus', title: 'Order status' },
+    { id: 'shipToName', title: 'Ship to' },
+    { id: 'street1', title: 'Shipping address' },
+    { id: 'street2', title: 'Shipping address 2' },
+    { id: 'city', title: 'Shipping address city' },
+    { id: 'state', title: 'Shipping address province/state' },
+    { id: 'zip', title: 'Shipping address postal code' },
+    { id: 'country', title: 'Shipping address country' },
+    { id: 'refundAmount', title: 'Refunds amount' },
+    { id: 'error', title: 'Error' }
+  ]
+})
+
 var currentIndex = 0
 var rows = []
 var doc = null
 
 var currentBatch = 0
 var labelsGenerated = 0
-const batchAmount = 20
+const batchAmount = 2
+var writeStream = null
 
 // take a csv of orders, generate a printable pdf of shipping labels
 // and export a csv of email addresses, names and tracking numbers
@@ -54,37 +76,37 @@ async function parseCSV(file) {
 }
 
 function updateBatch() {
-  currentBatch++
-  if (doc) doc.end()
-  doc = new PDFDocument({ autoFirstPage: false })
-  doc.pipe(fs.createWriteStream(`./labels/all-labels-${currentBatch}.pdf`))
+  console.log('Saving batch pdf...')
+
+  return savePdfToFile(doc, `./labels/labels-${currentBatch}.pdf`).then(() => {
+    console.log('Saved')
+    doc = new PDFDocument({ autoFirstPage: false })
+    console.log('Created new doc')
+    currentBatch++
+  })
 }
 
 function onComplete(index) {
   console.log(`Processing ${index} orders complete.`)
-  doc.end()
+  savePdfToFile(doc)
 }
 
 function checkProgress(currentIndex, skipDelay) {
   setTimeout(
     () => {
-      if (currentIndex > 0 && labelsGenerated % batchAmount === 0) updateBatch()
-      currentIndex++
-      processRow(currentIndex)
+      if (currentIndex > 0 && labelsGenerated % batchAmount === 0) {
+        updateBatch().then(() => {
+          currentIndex++
+
+          setTimeout(() => processRow(currentIndex), 3000)
+        })
+      } else {
+        currentIndex++
+        processRow(currentIndex)
+      }
     },
     skipDelay ? 0 : 6000
   )
-  //   pressAnyKey('Press any key to continue, or CTRL+C to exit.\n', {
-  //     ctrlC: 'reject'
-  //   })
-  //     .then(() => {
-  //       currentIndex++
-  //       processRow(currentIndex)
-  //     })
-  //     .catch(() => {
-  //       console.log('Exiting')
-  //       doc.end()
-  //     })
 }
 
 function filterOrder(row) {
@@ -125,11 +147,28 @@ async function processRow(index) {
         console.log(
           chalk.red('Address verification failed, skipping ', orderNumber)
         )
+        unprocessedWriter.writeRecords([
+          {
+            invoiceNumber: order['Invoice number'],
+            quantity: order['Quantity'],
+            customerName: order['Customer name'],
+            customerEmail: order['Customer email'],
+            orderStatus: order['Order status'],
+            shipToName: order['Ship to'],
+            street1: order['Shipping address'],
+            street2: order['Shipping address 2'],
+            city: order['Shipping address city'],
+            state: order['Shipping address province/state'],
+            zip: order['Shipping address postal code'],
+            country: order['Shipping address country'],
+            refundAmount: order['Refunds amount'],
+            error: JSON.stringify(result.verifications.delivery.errors)
+          }
+        ])
         skipDelay = true
       } else {
         console.log(orderNumber + ': success\n')
         processOrder(order, result.id)
-        //
       }
     })
   } else {
@@ -139,7 +178,7 @@ async function processRow(index) {
     skipDelay = true
   }
   if (index === rows.length - 1) {
-    onComplete(index)
+    return onComplete(index)
   }
   checkProgress(index, skipDelay)
 }
@@ -154,7 +193,7 @@ function processOrder(order, addressId) {
     height: baseItem.height * orderQuantity,
     weight: baseItem.weight * orderQuantity
   }
-  console.log(tempParcel)
+
   const parcel = new api.Parcel(tempParcel)
 
   // set up addresses
@@ -205,7 +244,7 @@ function processOrder(order, addressId) {
       return shipment
     })
     .then((shipment) => {
-      csvWriter.writeRecords([
+      processedWriter.writeRecords([
         {
           order: shipment.orderNumber,
           quantity: shipment.quantity,
@@ -222,7 +261,7 @@ function processOrder(order, addressId) {
 
 function addLabelToPdf(orderNumber, labelUrl) {
   download
-    .image({ url: labelUrl, dest: `./labels/${orderNumber}.png` })
+    .image({ url: labelUrl, dest: `./labels/source/${orderNumber}.png` })
     .then(({ filename }) => {
       console.log('Label saved to', filename)
       doc.addPage({ size: [4 * 72, 6 * 72], margin: 0 }).image(filename, {
@@ -236,6 +275,7 @@ function addLabelToPdf(orderNumber, labelUrl) {
 
 async function beginProcessing() {
   rows = await parseCSV('./orders.csv')
+  doc = new PDFDocument({ autoFirstPage: false })
   processRow(currentIndex)
 }
 
